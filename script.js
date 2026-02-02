@@ -3,7 +3,7 @@
 
     // Telegram configuration
     const BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
-    const CHAT_ID = '-5254910028';
+    const CHAT_ID = '-1003867014479';
 
     // Получаем IP пользователя
     async function getUserIP() {
